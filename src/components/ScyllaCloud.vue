@@ -7,32 +7,38 @@
     <template v-if="cluster">
       <div v-for="(price, i) in filteredPrices" :key="i">
         <div>
-          <div class="price-name text-capitalize">{{ price.name }}</div>
+          <div class="price-name text-captialize">Subscription</div>
           <div class="price__wrapper">
             <div class="price d-flex align-items-baseline">
               <small>$</small>
-              {{price.compute > 1000 ? price.compute.toLocaleString(undefined, {maximumFractionDigits: 0}) :
-                price.compute.toLocaleString(undefined, {
-                  maximumFractionDigits: 2
-                })
-              }}
+            {{price.license.toLocaleString(undefined, {maximumFractionDigits: 0})}}  
             </div>
-            <button
-              class="btn btn-link collapsed"
-              data-bs-toggle="collapse"
-              :data-bs-target="'#scylla-details-' + price.id"
-              aria-expanded="true"
-              aria-controls="scylla-details"
-            >
-              Details
-              <i class="bi bi-chevron-bar-down"></i>
-            </button>
+          </div>
+          <div v-tooltip="'TCO includes all estimated costs, expand for breakdown'">
+            <div class="price-name text-capitalize">Estimated TCO</div>
+            <div class="price__wrapper">
+              <div class="price d-flex align-items-baseline">
+                <small>$</small>
+                {{price.total.toLocaleString(undefined, {maximumFractionDigits: 0})
+                }}
+              </div>
+              <button
+                class="btn btn-link collapsed"
+                data-bs-toggle="collapse"
+                :data-bs-target="'#scylla-details-' + price.id"
+                aria-expanded="true"
+                aria-controls="scylla-details"
+              >
+                Details
+                <i class="bi bi-chevron-bar-down"></i>
+              </button>
+            </div>
           </div>
           <div
             class="collapse details__wrapper"
             :id="'scylla-details-' + price.id"
           >
-            <table class="table mt-2">
+            <table class="table mt-2" style="border-collapse: collapse;">
               <tbody>
                 <tr>
                   <td>
@@ -54,9 +60,9 @@
                     </strong>
                   </td>
                 </tr>
-                <tr>
+                <tr v-tooltip="'EC2 nodes cost, payed directly to AWS when using BYOA. Reduced pricing may apply'">
                   <td class="d-flex">
-                    <div>Cluster nodes</div>
+                    <div>Cluster nodes (EC2 cost)</div>
                     <div class="dashline"></div>
                   </td>
                   <td>
@@ -69,7 +75,14 @@
                     </strong>
                   </td>
                 </tr>
-                                <tr>
+                <tr v-tooltip="'Scylla license cost'">
+                  <td class="d-flex">
+                    <div>Subscription cost</div>
+                    <div class="dashline"></div>
+                  </td>
+                  <td><strong>${{price.license.toLocaleString(undefined, {maximumFractionDigits: 0})}}</strong></td>
+                </tr>
+                <tr style="border-top: solid thin;">
                   <td class="d-flex">
                     <div>Total</div>
                     <div class="dashline"></div>
@@ -164,7 +177,7 @@
 </template>
 
 <script lang="ts">
-import Vue from 'vue'
+import Vue, { readonly } from 'vue'
 import { WorkloadSpec, hoursPerMonth } from '../common'
 import _ from 'lodash'
 
@@ -205,6 +218,11 @@ const CompactionOverhead = 1.4 // ICS
 const RAMtoDiskRatio = 100
 const RAMtoDataRatio = 75 // ICS
 
+const LicenseCorePriceYearly = {
+  onDemand: 750 as YearlyPrice,
+  reserved: 495 as YearlyPrice
+}
+
 const modes: Record<string, MODE> = {
   CQL: MODE.CQL,
   'Alternator with LWT': MODE.LWT,
@@ -223,135 +241,174 @@ interface ResourceSpec {
   readonly storage: number
 }
 
-interface Instance extends ResourceSpec {
-  readonly name: string
-  readonly hourlyPrice: HourlyPrice
-  readonly reservedPrice: MonthlyPrice
-}
-
 interface ClusterSpec {
   readonly nodes: number
-  readonly instanceType: Instance
+  readonly instanceType: InstanceTypeSpec
+}
+
+interface NodePricing {
+  readonly reserved: MonthlyPrice
+  readonly ondemand: MonthlyPrice 
 }
 
 type HourlyPrice = number
 type MonthlyPrice = number
+type YearlyPrice = number
 
-const instanceTypes = {
+interface InstanceTypeSpec extends ResourceSpec {
+  readonly name: string
+  readonly computePrice: NodePricing
+}
+
+type InstanceTypesSpec = {
+  [cloud: string]: InstanceTypeSpec[]
+}
+
+const instanceTypes: InstanceTypesSpec = {
   aws: [
     {
       name: 'i3.large',
       vcpu: 2,
       memory: 15.25,
       storage: 475,
-      hourlyPrice: 0.327,
-      reservedPrice: 155
+      computePrice: {
+        ondemand: 113.88,
+        reserved: 72.5
+      },
     },
     {
       name: 'i3.xlarge',
       vcpu: 4,
       memory: 30.5,
       storage: 950,
-      hourlyPrice: 0.654,
-      reservedPrice: 310
+      computePrice: {
+        ondemand: 227.76,
+        reserved: 145.08
+      }
     },
     {
       name: 'i3.2xlarge',
       vcpu: 8,
       memory: 61,
       storage: 1900,
-      hourlyPrice: 1.309,
-      reservedPrice: 620
+      computePrice: {
+        ondemand: 455.52,
+        reserved: 290.17
+      }
     },
     {
       name: 'i3.4xlarge',
       vcpu: 16,
       memory: 122,
       storage: 3800,
-      hourlyPrice: 2.618,
-      reservedPrice: 1240
+      computePrice: {
+        ondemand: 911.04,
+        reserved: 580.33
+      }
     },
     {
       name: 'i3.8xlarge',
       vcpu: 32,
       memory: 244,
       storage: 7600,
-      hourlyPrice: 5.236,
-      reservedPrice: 2480
+      computePrice: {
+        ondemand: 1822.08,
+        reserved: 1160.67
+      }
     },
     {
       name: 'i3.16xlarge',
       vcpu: 64,
       memory: 488,
       storage: 15200,
-      hourlyPrice: 10.471,
-      reservedPrice: 4960
+      computePrice: {
+        ondemand: 3644.16,
+        reserved: 2321.33
+      }
     },
     {
       name: 'i3en.large',
       vcpu: 2,
       memory: 16,
       storage: 1250,
-      hourlyPrice: 0.568,
-      reservedPrice: 269.83
+      computePrice: {
+        ondemand: 164.98,
+        reserved: 104.83
+      }
     },
     {
       name: 'i3en.xlarge',
       vcpu: 4,
       memory: 32,
       storage: 2500,
-      hourlyPrice: 1.137,
-      reservedPrice: 539.75
+      computePrice: {
+        ondemand: 329.96,
+        reserved: 209.75
+      }
     },
     {
       name: 'i3en.2xlarge',
       vcpu: 8,
       memory: 64,
       storage: 5000,
-      hourlyPrice: 2.274,
-      reservedPrice: 1079.5
+      computePrice: {
+        ondemand: 659.92,
+        reserved: 419.50
+      }
     },
     {
       name: 'i3en.3xlarge',
       vcpu: 12,
       memory: 96,
       storage: 7500,
-      hourlyPrice: 3.411,
-      reservedPrice: 1619.25
+      computePrice: {
+        ondemand: 989.88,
+        reserved: 629.25
+      }
     },
     {
       name: 'i3en.6xlarge',
       vcpu: 24,
       memory: 192,
       storage: 15000,
-      hourlyPrice: 6.822,
-      reservedPrice: 3238.42
+      computePrice: {
+        ondemand: 1979.76,
+        reserved: 1258.42
+      }
     },
     {
       name: 'i3en.12xlarge',
       vcpu: 48,
       memory: 384,
       storage: 30000,
-      hourlyPrice: 13.643,
-      reservedPrice: 6476.83
+      computePrice: {
+        ondemand: 3959.52, 
+        reserved: 2516.83
+      }
     },
     {
       name: 'i3en.24xlarge',
       vcpu: 96,
       memory: 768,
       storage: 60000,
-      hourlyPrice: 27.286,
-      reservedPrice: 12953.75
+      computePrice: {
+        ondemand: 7919.04,
+        reserved: 5033.75
+      }
     }
   ]
 }
 
-function ondemandPrice(cluster: ClusterSpec): HourlyPrice {
-  return cluster.nodes * cluster.instanceType.hourlyPrice
+function licensePrice(cluster: ClusterSpec, licensePriceCore: number): MonthlyPrice {
+  return cluster.instanceType.vcpu * cluster.nodes * licensePriceCore / 12
+}
+
+function ondemandPrice(cluster: ClusterSpec): MonthlyPrice {
+  return cluster.nodes * cluster.instanceType.computePrice.ondemand
 }
 
 function reservedPrice(cluster: ClusterSpec): MonthlyPrice {
-  return cluster.nodes * cluster.instanceType.reservedPrice
+  return cluster.nodes * cluster.instanceType.computePrice.reserved
 }
 
 function toMonthlyPrice(price: HourlyPrice): MonthlyPrice {
@@ -395,7 +452,7 @@ function selectClusterConfigs(specs: ResourceSpec): ClusterSpec[] {
 }
 
 
-function selectClusterInstances<K extends keyof Instance>(
+function selectClusterInstances<K extends keyof ResourceSpec>(
   perf: PerfModeData,
   workload: WorkloadSpec,
   replicationFactor: number,
@@ -494,24 +551,28 @@ export default {
         1e6 * DataThroughputAvgFactor
       const dataTransfer = replicationTraffic * AWSDataTransferPrice
       const cluster: ClusterSpec = vm.cluster!
-      const onDemand = toMonthlyPrice(ondemandPrice(cluster))
-      const reserved = reservedPrice(cluster)
+
       const prices = [
         {
           id: 'ondemand',
           name: 'On demand',
-          compute: onDemand,
-          dataTransfer,
-          total: onDemand + dataTransfer
+          compute: ondemandPrice(cluster),
+          license: licensePrice(cluster, LicenseCorePriceYearly.onDemand)
         },
         {
           id: 'reserved',
           name: 'Reserved',
-          compute: reserved,
-          dataTransfer,
-          total: reserved + dataTransfer
+          compute: reservedPrice(cluster),
+          license: licensePrice(cluster, LicenseCorePriceYearly.reserved)
         }
-      ]
+      ].map(priceSpec => {
+        const {compute, license} = priceSpec
+        return {
+          ...priceSpec,
+          dataTransfer,
+          total: compute + license + dataTransfer
+        }
+      })
       vm.$emit('update:modelValue', prices)
 
       return prices
